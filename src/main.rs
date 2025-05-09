@@ -1,20 +1,22 @@
-//! Wallet example with memory store
-//! Note: This example requires the "wallet" feature to be enabled (enabled by default)
-
-use cdk::amount::SplitTarget;
-use cdk::nuts::{CurrencyUnit, MintQuoteState};
-use cdk::wallet::SendOptions;
-use cdk::wallet::Wallet;
-use cdk::Amount;
-use cdk_sqlite::wallet::memory;
+///
+/// Creates a set of Cashu tokens of fixed or variable size and outputs
+/// these into a text file with each line representing the token's
+/// value followed by a space followed by the token's code.
+///
+/// # Example
+///
+/// ```
+/// lakeside -m https://testnut.cashu.space -f 0 -l 10 -u 100 -n 10
+/// ```
+///
 use clap::Parser;
-use rand::random;
-use rand::Rng;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::time::sleep;
+use token_amount::{compute_sum_total, compute_token_values};
+use wallet::mint_and_export_token;
+
+mod token_amount;
+mod wallet;
 
 #[derive(Parser)]
 #[command(about = "A tool to mint and store Cashu tokens of variable amounts", long_about = None)]
@@ -29,7 +31,7 @@ struct Args {
     #[arg(short, long, default_value = "https://mint.mountainlake.io")]
     mint: String,
 
-    /// The value of the token to be issued; use 0 (zero) for tokens of variable amounts and specify the lower and upper bounds
+    /// The value of the token to be issued; use 0 for tokens of variable amounts and specify the lower and upper bounds
     #[arg(short = 'f', long, required = true)]
     fixed_amount: u64,
 
@@ -38,11 +40,11 @@ struct Args {
     range_lower_bound: u64,
 
     /// In the case of variable token values (fixed_amount is zero), this is the upper bound
-    #[arg(short = 'u', long, default_value_t = 100)]
+    #[arg(short = 'u', long, default_value_t = 20)]
     range_upper_bound: u64,
 
     /// Number of tokens to mint
-    #[arg(short = 'n', long, required = true)]
+    #[arg(short = 'n', long, default_value_t = 4)]
     token_count: u64,
 
     /// File name to store the amounts and token in a tab separated text file
@@ -50,103 +52,72 @@ struct Args {
     output_filename: String,
 }
 
-struct CashuToken {
+struct LakesideToken {
     value: u64,
     code: String,
 }
 
 #[tokio::main]
 async fn main() {
-    {
-        let args = Args::parse();
+    const MINT_RESERVE: u64 = 10;
+    let args = Args::parse();
 
-        // define program parameters
-        let seed = random::<[u8; 32]>();
-        let unit = CurrencyUnit::Sat;
+    let token_values = compute_token_values(
+        args.fixed_amount,
+        args.range_lower_bound,
+        args.range_upper_bound,
+        args.token_count,
+    );
+    let max_amount = compute_sum_total(&token_values) + MINT_RESERVE;
+    println!("going to invoice and mint {} sats", max_amount);
 
-        //
-        // setup wallet and ask to pay lightning invoice
-        //
-        let max_amount: u64;
-        if args.fixed_amount > 0 {
-            max_amount = args.fixed_amount * args.token_count;
+    let wallet = wallet::mint_all_sats(&args.mint, max_amount).await;
+    let mut remaining_credit = max_amount;
+    let mut tokenvec: Vec<LakesideToken> = Vec::new();
+    let mut actual_token_count = 0;
+
+    for t in &token_values {
+        let token_amount: u64 = if *t > remaining_credit {
+            remaining_credit
         } else {
-            max_amount = (args.range_lower_bound
-                + (args.range_upper_bound - args.range_lower_bound) / 2)
-                * args.token_count;
-        }
+            *t
+        };
 
-        let amount_minted = Amount::from(max_amount);
-
-        let localstore = memory::empty().await.unwrap();
-
-        let wallet = Wallet::new(&args.mint, unit, Arc::new(localstore), &seed, None).unwrap();
-
-        let quote = wallet.mint_quote(amount_minted, None).await.unwrap();
-
-        println!("Please pay this invoice: {}", quote.request);
-
-        loop {
-            let status = wallet.mint_quote_state(&quote.id).await.unwrap();
-
-            if status.state == MintQuoteState::Paid {
+        let token_string: String = match mint_and_export_token(&wallet, token_amount).await {
+            Ok(ts) => ts,
+            Err(cdkerr) => {
+                if actual_token_count < args.token_count {
+                    println!(
+                        "Only created {} instead of {} tokens: {:?}",
+                        actual_token_count, args.token_count, cdkerr
+                    );
+                }
                 break;
             }
-            println!("Quote state: {}", status.state);
+        };
 
-            sleep(Duration::from_secs(5)).await;
-        }
+        let cashu_token = LakesideToken {
+            value: token_amount,
+            code: token_string,
+        };
+        tokenvec.push(cashu_token);
 
-        let _ = wallet
-            .mint(&quote.id, SplitTarget::default(), None)
-            .await
-            .unwrap();
-
-        let mut remaining_value = max_amount;
-        let mut rng = rand::rng();
-
-        let mut tokenvec: Vec<CashuToken> = Vec::new();
-
-        for _ in 0..args.token_count {
-            print!(".");
-            let mut token_amount: u64;
-            if args.fixed_amount == 0 {
-                token_amount = rng.random_range(args.range_lower_bound..=args.range_upper_bound);
-            } else {
-                token_amount = args.fixed_amount;
-            }
-            if token_amount > remaining_value {
-                token_amount = remaining_value;
-            }
-            // Send the token
-            let prepared_send = wallet
-                .prepare_send(Amount::from(token_amount), SendOptions::default())
-                .await
-                .unwrap();
-
-            let token = wallet.send(prepared_send, None).await.unwrap();
-
-            let cashu_token = CashuToken {
-                value: token_amount,
-                code: token.to_string(),
-            };
-            tokenvec.push(cashu_token);
-
-            remaining_value = remaining_value - token_amount;
-            if remaining_value == 0 {
-                break;
-            }
-        }
-        println!("");
-
-        // Open file for writing
-        let file = File::create(args.output_filename.clone()).expect("opening file");
-        let mut writer = BufWriter::new(file);
-        // Write each token line-by-line: value<TAB>code
-        for token in &tokenvec {
-            writeln!(writer, "{}\t{}", token.value, token.code).expect("Writing token");
-        }
-
-        println!("Tokens written to {}", args.output_filename);
+        remaining_credit = remaining_credit - token_amount;
+        actual_token_count += 1;
     }
+    println!("");
+
+    let mut all_token_values = String::from("Token values: ");
+    // Open file for writing
+    let file = File::create(args.output_filename.clone()).expect("opening file");
+    let mut writer = BufWriter::new(file);
+    // Write each token line-by-line: value<TAB>code
+    for token in &tokenvec {
+        writeln!(writer, "{}\t{}", token.value, token.code).expect("Writing token");
+        all_token_values.push_str(&token.value.to_string());
+        all_token_values.push(' ');
+    }
+
+    println!("Tokens written to {}", args.output_filename);
+    println!("{}", all_token_values);
 }
