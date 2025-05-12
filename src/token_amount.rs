@@ -39,4 +39,11 @@ mod tests {
         let result = compute_token_value(0, 100, 1000);
         assert!(result >= 100 && result <= 1000);
     }
+
+    #[test]
+    fn test_compute_sum() {
+        let values = vec![21, 13, 14, 15, 16, 121];
+        let sum = compute_sum_total(&values);
+        assert_eq!(sum, 200);
+    }
 }

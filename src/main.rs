@@ -1,9 +1,13 @@
 ///
-/// Creates a set of Cashu tokens of fixed or variable size and outputs
+/// Creates a batch of Cashu tokens of fixed or variable size and outputs
 /// these into a text file with each line representing the token's
 /// value followed by a space followed by the token's code.
 ///
 /// # Example
+///
+/// In this example we call the specified mint to create 10 tokens of variable
+/// amounts that range between 10 and 100 satoshis. The tokens are store
+/// in the default file cashu_tokens.txt.
 ///
 /// ```
 /// lakeside -m https://testnut.cashu.space -f 0 -l 10 -u 100 -n 10
@@ -59,6 +63,7 @@ struct LakesideToken {
 
 #[tokio::main]
 async fn main() {
+    // I need to check if there is a better way to determine the reserve for the mint
     const MINT_RESERVE: u64 = 10;
     let args = Args::parse();
 
@@ -68,13 +73,13 @@ async fn main() {
         args.range_upper_bound,
         args.token_count,
     );
+
     let max_amount = compute_sum_total(&token_values) + MINT_RESERVE;
-    println!("going to invoice and mint {} sats", max_amount);
+    let mut remaining_credit = max_amount;
+    let mut actual_token_count = 0;
+    let mut tokenvec: Vec<LakesideToken> = Vec::new();
 
     let wallet = wallet::mint_all_sats(&args.mint, max_amount).await;
-    let mut remaining_credit = max_amount;
-    let mut tokenvec: Vec<LakesideToken> = Vec::new();
-    let mut actual_token_count = 0;
 
     for t in &token_values {
         let token_amount: u64 = if *t > remaining_credit {
@@ -105,7 +110,6 @@ async fn main() {
         remaining_credit = remaining_credit - token_amount;
         actual_token_count += 1;
     }
-    println!("");
 
     let mut all_token_values = String::from("Token values: ");
     // Open file for writing
@@ -118,6 +122,6 @@ async fn main() {
         all_token_values.push(' ');
     }
 
-    println!("Tokens written to {}", args.output_filename);
+    println!("Tokens written to {}.", args.output_filename);
     println!("{}", all_token_values);
 }

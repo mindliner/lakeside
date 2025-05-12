@@ -22,8 +22,8 @@ pub async fn mint_all_sats(mint: &String, sats_to_mint: u64) -> Wallet {
     let wallet = initialize_wallet(mint).await;
     let amount_to_mint = Amount::from(sats_to_mint);
     let quote = wallet.mint_quote(amount_to_mint, None).await.unwrap();
-    println!("Please pay this invoice: {}", quote.request);
 
+    println!("Please pay this invoice: {}", quote.request);
     loop {
         let status = wallet.mint_quote_state(&quote.id).await.unwrap();
 
@@ -34,7 +34,7 @@ pub async fn mint_all_sats(mint: &String, sats_to_mint: u64) -> Wallet {
 
         sleep(Duration::from_secs(5)).await;
     }
-    println!("Thank you!");
+    println!("... received.");
 
     wallet
         .mint(&quote.id, SplitTarget::default(), None)
