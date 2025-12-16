@@ -9,6 +9,8 @@ fn compute_token_value(fixed: u64, lower: u64, upper: u64) -> u64 {
     }
 }
 
+/// Compute a value for each token to be generated. Values are either fixed or random
+/// within a range.
 pub fn compute_token_values(fixed: u64, lower: u64, upper: u64, count: u64) -> Vec<u64> {
     let mut values: Vec<u64> = Vec::new();
     for _ in 0..count {
@@ -17,6 +19,7 @@ pub fn compute_token_values(fixed: u64, lower: u64, upper: u64, count: u64) -> V
     values
 }
 
+/// Returns the sum of the amounts of all tokens generated
 pub fn compute_sum_total(tokens: &Vec<u64>) -> u64 {
     let mut sum: u64 = 0;
     for t in tokens {

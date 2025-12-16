@@ -10,14 +10,14 @@
 /// in the default file cashu_tokens.txt.
 ///
 /// ```
-/// lakeside -m https://testnut.cashu.space -f 0 -l 10 -u 100 -n 10
+/// lakeside -m https://mint.mountainlake.io -f 0 -l 10 -u 100 -n 10
 /// ```
 ///
 use clap::Parser;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use token_amount::{compute_sum_total, compute_token_values};
-use wallet::mint_and_export_token;
+use wallet::{send_and_export_token, LakesideWallet, LakesideWalletType};
 
 mod token_amount;
 mod wallet;
@@ -27,11 +27,12 @@ mod wallet;
 #[command(
     name = "lakeside",
     author = "Marius <marius@mountainlake.io>",
-    version = "0.1.0",
-    about = "Mints Cashu tokens and saves to file"
+    version = "0.1.1",
+    about = "Mints Cashu tokens and exports to file"
 )]
 struct Args {
     /// URL of the Cashu mint
+    //#[arg(short, long, default_value = "https://mint.mountainlake.io")]
     #[arg(short, long, default_value = "https://mint.mountainlake.io")]
     mint: String,
 
@@ -41,11 +42,11 @@ struct Args {
 
     /// In the case of variable token values (fixed_amount is zero), this is the lower bound
     #[arg(short = 'l', long, default_value_t = 10)]
-    range_lower_bound: u64,
+    lower_bound: u64,
 
     /// In the case of variable token values (fixed_amount is zero), this is the upper bound
     #[arg(short = 'u', long, default_value_t = 20)]
-    range_upper_bound: u64,
+    upper_bound: u64,
 
     /// Number of tokens to mint
     #[arg(short = 'n', long, default_value_t = 4)]
@@ -54,6 +55,10 @@ struct Args {
     /// File name to store the amounts and token in a tab separated text file
     #[arg(short, long, default_value = "cashu_tokens.txt")]
     output_filename: String,
+
+    /// Persistent wallet; if true the wallet will be stored and re-used, otherwise the wallet will be destroyed at program end
+    #[arg(short, long)]
+    persistent_wallet: bool,
 }
 
 struct LakesideToken {
@@ -63,14 +68,14 @@ struct LakesideToken {
 
 #[tokio::main]
 async fn main() {
-    // I need to check if there is a better way to determine the reserve for the mint
+    // Todo: check if there is a better way to determine the reserve for the mint
     const MINT_RESERVE: u64 = 10;
     let args = Args::parse();
 
     let token_values = compute_token_values(
         args.fixed_amount,
-        args.range_lower_bound,
-        args.range_upper_bound,
+        args.lower_bound,
+        args.upper_bound,
         args.token_count,
     );
 
@@ -78,8 +83,15 @@ async fn main() {
     let mut remaining_credit = max_amount;
     let mut actual_token_count = 0;
     let mut tokenvec: Vec<LakesideToken> = Vec::new();
+    let lakeside_wallet_type: LakesideWalletType = if args.persistent_wallet {
+        LakesideWalletType::Persistent(String::from("/home/marius/.lakeside/seed"))
+    } else {
+        LakesideWalletType::Transient
+    };
 
-    let wallet = wallet::mint_all_sats(&args.mint, max_amount).await;
+    let lakeside_wallet = LakesideWallet::new(String::from(&args.mint), lakeside_wallet_type);
+
+    let wallet = wallet::mint_all_sats(lakeside_wallet, max_amount).await;
 
     for t in &token_values {
         let token_amount: u64 = if *t > remaining_credit {
@@ -88,7 +100,7 @@ async fn main() {
             *t
         };
 
-        let token_string: String = match mint_and_export_token(&wallet, token_amount).await {
+        let token_string: String = match send_and_export_token(&wallet, token_amount).await {
             Ok(ts) => ts,
             Err(cdkerr) => {
                 if actual_token_count < args.token_count {

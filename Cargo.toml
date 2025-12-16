@@ -1,11 +1,11 @@
 [package]
 name = "lakeside"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-cdk = "*"
-tokio = "1.45.0"
-rand = "0.9.1"
-cdk-sqlite = "0.9.1"
-clap = { version = "4.5.37", features = ["derive"] }
+cdk = { version = "*" }
+tokio = "*"
+rand = "*"
+cdk-sqlite = "*"
+clap = { version = "4.5.53", features = ["derive"] }
