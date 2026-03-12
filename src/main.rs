@@ -13,13 +13,17 @@
 /// lakeside -m https://mint.mountainlake.io -f 0 -l 10 -u 100 -n 10
 /// ```
 ///
+use cdk::nuts::nut00::KnownMethod;
 use clap::Parser;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use token_amount::{compute_sum_total, compute_token_values};
+use token_format::TokenFormat;
 use wallet::{send_and_export_token, LakesideWallet, LakesideWalletType};
 
 mod token_amount;
+mod token_format;
 mod wallet;
 
 #[derive(Parser)]
@@ -27,13 +31,12 @@ mod wallet;
 #[command(
     name = "lakeside",
     author = "Marius <marius@mountainlake.io>",
-    version = "0.1.1",
+    version = "0.1.2",
     about = "Mints Cashu tokens and exports to file"
 )]
 struct Args {
     /// URL of the Cashu mint
-    //#[arg(short, long, default_value = "https://mint.mountainlake.io")]
-    #[arg(short, long, default_value = "https://mint.mountainlake.io")]
+    #[arg(short, long, default_value = "https://m7.mountainlake.io")]
     mint: String,
 
     /// The value of the token to be issued; use 0 for tokens of variable amounts and specify the lower and upper bounds
@@ -55,6 +58,14 @@ struct Args {
     /// File name to store the amounts and token in a tab separated text file
     #[arg(short, long, default_value = "cashu_tokens.txt")]
     output_filename: String,
+
+    /// Token format to export (cashuA for widest compatibility, cashuB for the new V4 format)
+    #[arg(long, value_enum, default_value_t = TokenFormat::CashuA)]
+    token_format: TokenFormat,
+
+    /// Use Bolt12 invoices instead of the default Bolt11
+    #[arg(long)]
+    bolt12: bool,
 
     /// Persistent wallet; if true the wallet will be stored and re-used, otherwise the wallet will be destroyed at program end
     #[arg(short, long)]
@@ -84,14 +95,23 @@ async fn main() {
     let mut actual_token_count = 0;
     let mut tokenvec: Vec<LakesideToken> = Vec::new();
     let lakeside_wallet_type: LakesideWalletType = if args.persistent_wallet {
-        LakesideWalletType::Persistent(String::from("/home/marius/.lakeside/seed"))
+        let wallet_dir = default_wallet_dir();
+        let seed_path = wallet_dir.join("seed");
+        let db_path = wallet_dir.join("wallet.sqlite");
+        LakesideWalletType::Persistent { seed_path, db_path }
     } else {
         LakesideWalletType::Transient
     };
 
+    let payment_method = if args.bolt12 {
+        KnownMethod::Bolt12
+    } else {
+        KnownMethod::Bolt11
+    };
+
     let lakeside_wallet = LakesideWallet::new(String::from(&args.mint), lakeside_wallet_type);
 
-    let wallet = wallet::mint_all_sats(lakeside_wallet, max_amount).await;
+    let wallet = wallet::mint_all_sats(lakeside_wallet, max_amount, payment_method).await;
 
     for t in &token_values {
         let token_amount: u64 = if *t > remaining_credit {
@@ -100,18 +120,19 @@ async fn main() {
             *t
         };
 
-        let token_string: String = match send_and_export_token(&wallet, token_amount).await {
-            Ok(ts) => ts,
-            Err(cdkerr) => {
-                if actual_token_count < args.token_count {
-                    println!(
-                        "Only created {} instead of {} tokens: {:?}",
-                        actual_token_count, args.token_count, cdkerr
-                    );
+        let token_string: String =
+            match send_and_export_token(&wallet, token_amount, args.token_format).await {
+                Ok(ts) => ts,
+                Err(cdkerr) => {
+                    if actual_token_count < args.token_count {
+                        println!(
+                            "Only created {} instead of {} tokens: {:?}",
+                            actual_token_count, args.token_count, cdkerr
+                        );
+                    }
+                    break;
                 }
-                break;
-            }
-        };
+            };
 
         let cashu_token = LakesideToken {
             value: token_amount,
@@ -124,8 +145,17 @@ async fn main() {
     }
 
     let mut all_token_values = String::from("Token values: ");
+    let output_path = next_available_filename(&args.output_filename);
+    if output_path != PathBuf::from(&args.output_filename) {
+        println!(
+            "Output file {} exists, writing to {} instead.",
+            args.output_filename,
+            output_path.display()
+        );
+    }
+
     // Open file for writing
-    let file = File::create(args.output_filename.clone()).expect("opening file");
+    let file = File::create(&output_path).expect("opening file");
     let mut writer = BufWriter::new(file);
     // Write each token line-by-line: value<TAB>code
     for token in &tokenvec {
@@ -134,6 +164,45 @@ async fn main() {
         all_token_values.push(' ');
     }
 
-    println!("Tokens written to {}.", args.output_filename);
+    println!("Tokens written to {}.", output_path.display());
     println!("{}", all_token_values);
+}
+
+fn default_wallet_dir() -> PathBuf {
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".lakeside")
+}
+
+fn next_available_filename(original: &str) -> PathBuf {
+    let path = PathBuf::from(original);
+    if !path.exists() {
+        return path;
+    }
+
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(original);
+    let extension = path.extension().and_then(|s| s.to_str());
+    let parent = path.parent().map(PathBuf::from);
+
+    for counter in 1u32.. {
+        let candidate_name = match extension {
+            Some(ext) => format!("{}_{}.{}", stem, counter, ext),
+            None => format!("{}_{}", stem, counter),
+        };
+
+        let candidate = match &parent {
+            Some(dir) => dir.join(&candidate_name),
+            None => PathBuf::from(&candidate_name),
+        };
+
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    path
 }

@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 
 fn compute_token_value(fixed: u64, lower: u64, upper: u64) -> u64 {
     let mut rng = rand::rng();
