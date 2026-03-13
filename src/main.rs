@@ -19,8 +19,10 @@ use tokio::sync::{Mutex, RwLock};
 use tower_http::trace::TraceLayer;
 
 const TOKEN_FORMAT_LABEL: &str = "cashu-b";
+const DEFAULT_LOWER_BOUND: u64 = 10;
+const DEFAULT_UPPER_BOUND: u64 = 20;
 
-use token_amount::{compute_sum_total, compute_token_values};
+use token_amount::{compute_sum_total, compute_token_values, AmountStrategy};
 use wallet::{open_wallet, send_and_export_token, LakesideWallet, LakesideWalletType};
 
 use crate::tickets::{
@@ -31,6 +33,53 @@ use crate::tickets::{
 mod tickets;
 mod token_amount;
 mod wallet;
+
+#[derive(Args, Clone, Default)]
+struct AmountArgs {
+    /// Fixed amount (in sats) for every token
+    #[arg(short = 'f', long)]
+    fixed_amount: Option<u64>,
+    /// Lower bound for random payouts
+    #[arg(short = 'l', long)]
+    lower_bound: Option<u64>,
+    /// Upper bound for random payouts
+    #[arg(short = 'u', long)]
+    upper_bound: Option<u64>,
+}
+
+impl AmountArgs {
+    fn resolve(&self) -> Result<AmountStrategy> {
+        match (self.fixed_amount, self.lower_bound, self.upper_bound) {
+            (Some(fixed), None, None) => {
+                if fixed == 0 {
+                    bail!("--fixed-amount must be greater than zero");
+                }
+                Ok(AmountStrategy::Fixed(fixed))
+            }
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
+                bail!(
+                    "Provide either --fixed-amount or (--lower-bound AND --upper-bound), not both"
+                );
+            }
+            (None, Some(lower), Some(upper)) => {
+                if lower == 0 || upper == 0 {
+                    bail!("Bounds must be greater than zero");
+                }
+                if upper < lower {
+                    bail!("--upper-bound must be greater than or equal to --lower-bound");
+                }
+                Ok(AmountStrategy::Range { lower, upper })
+            }
+            (None, Some(_), None) | (None, None, Some(_)) => {
+                bail!("Specify both --lower-bound and --upper-bound for ranged payouts");
+            }
+            (None, None, None) => Ok(AmountStrategy::Range {
+                lower: DEFAULT_LOWER_BOUND,
+                upper: DEFAULT_UPPER_BOUND,
+            }),
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -54,17 +103,8 @@ struct MintArgs {
     #[arg(short, long, default_value = "https://m7.mountainlake.io")]
     mint: String,
 
-    /// The value of each token; set to 0 to use lower/upper bounds
-    #[arg(short = 'f', long, default_value_t = 0)]
-    fixed_amount: u64,
-
-    /// Lower bound for variable token values
-    #[arg(short = 'l', long, default_value_t = 10)]
-    lower_bound: u64,
-
-    /// Upper bound for variable token values
-    #[arg(short = 'u', long, default_value_t = 20)]
-    upper_bound: u64,
+    #[command(flatten)]
+    amount: AmountArgs,
 
     /// Number of tokens to mint
     #[arg(short = 'n', long, default_value_t = 4)]
@@ -193,15 +233,8 @@ struct FaucetServeArgs {
     /// Optional wallet directory (defaults to ~/.lakeside)
     #[arg(long)]
     wallet_dir: Option<PathBuf>,
-    /// Fixed amount per token (0 = use variable range)
-    #[arg(long, default_value_t = 0)]
-    fixed_amount: u64,
-    /// Lower bound for random payouts (when fixed amount is 0)
-    #[arg(long, default_value_t = 10)]
-    lower_bound: u64,
-    /// Upper bound for random payouts (when fixed amount is 0)
-    #[arg(long, default_value_t = 20)]
-    upper_bound: u64,
+    #[command(flatten)]
+    amount: AmountArgs,
     /// Number of tokens to generate per claim
     #[arg(long, default_value_t = 4)]
     token_count: u64,
@@ -235,12 +268,11 @@ async fn run() -> Result<()> {
 async fn run_mint(args: &MintArgs) -> Result<()> {
     const MINT_RESERVE: u64 = 10;
 
-    let token_values = compute_token_values(
-        args.fixed_amount,
-        args.lower_bound,
-        args.upper_bound,
-        args.token_count,
-    );
+    let amount_strategy = args
+        .amount
+        .resolve()
+        .with_context(|| "invalid amount configuration")?;
+    let token_values = compute_token_values(amount_strategy, args.token_count);
 
     let max_amount = compute_sum_total(&token_values) + MINT_RESERVE;
     let mut remaining_credit = max_amount;
@@ -461,10 +493,12 @@ async fn run_faucet_server(args: &FaucetServeArgs) -> Result<()> {
         uppercase: !args.preserve_case,
         strip_hyphen: !args.keep_hyphens,
     };
+    let amount_strategy = args
+        .amount
+        .resolve()
+        .with_context(|| "invalid amount configuration")?;
     let payout = PayoutConfig {
-        fixed_amount: args.fixed_amount,
-        lower_bound: args.lower_bound,
-        upper_bound: args.upper_bound,
+        strategy: amount_strategy,
         token_count: args.token_count,
     };
     let state = FaucetState::new(tickets_path.clone(), store, wallet, payout, normalization);
@@ -568,9 +602,7 @@ async fn claim_ticket(
     }
 
     let values = compute_token_values(
-        state.shared.payout.fixed_amount,
-        state.shared.payout.lower_bound,
-        state.shared.payout.upper_bound,
+        state.shared.payout.strategy,
         state.shared.payout.token_count,
     );
 
@@ -690,9 +722,7 @@ impl FaucetState {
 
 #[derive(Clone, Copy)]
 struct PayoutConfig {
-    fixed_amount: u64,
-    lower_bound: u64,
-    upper_bound: u64,
+    strategy: AmountStrategy,
     token_count: u64,
 }
 

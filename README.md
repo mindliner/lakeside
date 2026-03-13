@@ -27,7 +27,6 @@ The default command (no subcommand) still mints a batch of tokens and writes the
 ```
 lakeside \
   --mint https://mint.mountainlake.io \
-  --fixed-amount 0 \
   --lower-bound 10 \
   --upper-bound 100 \
   --token-count 10 \
@@ -40,11 +39,13 @@ Key flags:
 | Flag | Description |
 | --- | --- |
 | `-m, --mint` | Cashu mint URL. |
-| `-f, --fixed-amount` | Set to `0` for variable amounts (use `--lower-bound` / `--upper-bound`). |
+| `-f, --fixed-amount` | Positive amount per token (mutually exclusive with `--lower-bound`/`--upper-bound`). |
 | `-n, --token-count` | Number of tokens to create. |
 | `-o, --output-filename` | Base filename; Lakeside auto-appends `_1`, `_2`, … if the file exists. |
 | `--bolt12` | Use Bolt12 invoices instead of Bolt11. |
 | `-p, --persistent-wallet` | Store seed + wallet DB in `~/.lakeside/` so proofs persist and can be re-exported. |
+
+> Tip: provide either `--fixed-amount` *or* both `--lower-bound` and `--upper-bound`. If you omit all three, Lakeside defaults to 10–20 sats per token.
 
 Remember to insert `--` when running via Cargo:
 
@@ -74,8 +75,7 @@ cargo run -- --mint https://mint.mountainlake.io --fixed-amount 21 --token-count
      --tickets tickets.json \
      --bind 0.0.0.0:8080 \
      --mint https://m7.mountainlake.io \
-     --fixed-amount 0 \
-     --lower-bound 10 \
+        --lower-bound 10 \
      --upper-bound 20 \
      --token-count 4
    ```

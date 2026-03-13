@@ -1,31 +1,38 @@
 use rand::RngExt;
 
-fn compute_token_value(fixed: u64, lower: u64, upper: u64) -> u64 {
-    let mut rng = rand::rng();
-    if fixed == 0 {
-        rng.random_range(lower..=upper)
-    } else {
-        fixed
+#[derive(Clone, Copy, Debug)]
+pub enum AmountStrategy {
+    Fixed(u64),
+    Range { lower: u64, upper: u64 },
+}
+
+fn compute_token_value(strategy: AmountStrategy) -> u64 {
+    match strategy {
+        AmountStrategy::Fixed(value) => value,
+        AmountStrategy::Range { lower, upper } => {
+            let mut rng = rand::rng();
+            if lower == upper {
+                lower
+            } else {
+                rng.random_range(lower..=upper)
+            }
+        }
     }
 }
 
 /// Compute a value for each token to be generated. Values are either fixed or random
 /// within a range.
-pub fn compute_token_values(fixed: u64, lower: u64, upper: u64, count: u64) -> Vec<u64> {
+pub fn compute_token_values(strategy: AmountStrategy, count: u64) -> Vec<u64> {
     let mut values: Vec<u64> = Vec::new();
     for _ in 0..count {
-        values.push(compute_token_value(fixed, lower, upper));
+        values.push(compute_token_value(strategy));
     }
     values
 }
 
 /// Returns the sum of the amounts of all tokens generated
 pub fn compute_sum_total(tokens: &Vec<u64>) -> u64 {
-    let mut sum: u64 = 0;
-    for t in tokens {
-        sum += t;
-    }
-    sum
+    tokens.iter().copied().sum()
 }
 
 #[cfg(test)]
@@ -34,12 +41,17 @@ mod tests {
 
     #[test]
     fn test_fixed_amount() {
-        assert_eq!(compute_token_value(5000, 100, 1000), 5000);
+        let strategy = AmountStrategy::Fixed(5000);
+        assert_eq!(compute_token_value(strategy), 5000);
     }
 
     #[test]
     fn test_variable_amount() {
-        let result = compute_token_value(0, 100, 1000);
+        let strategy = AmountStrategy::Range {
+            lower: 100,
+            upper: 1000,
+        };
+        let result = compute_token_value(strategy);
         assert!(result >= 100 && result <= 1000);
     }
 
