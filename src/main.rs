@@ -19,8 +19,8 @@ use tokio::sync::{Mutex, RwLock};
 use tower_http::trace::TraceLayer;
 
 const TOKEN_FORMAT_LABEL: &str = "cashu-b";
-const DEFAULT_LOWER_BOUND: u64 = 10;
-const DEFAULT_UPPER_BOUND: u64 = 20;
+const DEFAULT_LOWER_BOUND: u64 = 09;
+const DEFAULT_UPPER_BOUND: u64 = 21;
 
 use token_amount::{compute_sum_total, compute_token_values, AmountStrategy};
 use wallet::{open_wallet, send_and_export_token, LakesideWallet, LakesideWalletType};
@@ -85,7 +85,7 @@ impl AmountArgs {
 #[command(
     name = "lakeside",
     author = "Marius <marius@mountainlake.io>",
-    version = "0.1.2",
+    version = env!("CARGO_PKG_VERSION"),
     about = "Mints Cashu tokens and manages ticket-gated faucet data",
     arg_required_else_help = false
 )]
