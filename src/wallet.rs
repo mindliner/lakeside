@@ -1,4 +1,3 @@
-use crate::token_format::TokenFormat;
 use cdk::amount::SplitTarget;
 use cdk::nuts::nut00::KnownMethod;
 use cdk::nuts::{CurrencyUnit, MintQuoteState};
@@ -30,6 +29,10 @@ impl LakesideWallet {
     pub fn new(mint: String, wallet_type: LakesideWalletType) -> Self {
         Self { mint, wallet_type }
     }
+}
+
+pub async fn open_wallet(lakeside_wallet: LakesideWallet) -> Wallet {
+    initialize_wallet(lakeside_wallet).await
 }
 
 async fn initialize_wallet(lakeside_mint: LakesideWallet) -> Wallet {
@@ -87,19 +90,17 @@ pub async fn mint_all_sats(
 pub async fn send_and_export_token(
     wallet: &Wallet,
     sats: u64,
-    format: TokenFormat,
+    options: Option<SendOptions>,
 ) -> Result<String, Error> {
+    let send_options = options.unwrap_or_else(SendOptions::default);
     let prepared_send = wallet
-        .prepare_send(Amount::from(sats), SendOptions::default())
+        .prepare_send(Amount::from(sats), send_options)
         .await?;
 
     // implement error handling here, return error so that the program can continue
     // to write the tokens to disk
     let token = prepared_send.confirm(None).await?;
-    let token_string = match format {
-        TokenFormat::CashuA => token.to_v3_string(),
-        TokenFormat::CashuB => token.to_string(),
-    };
+    let token_string = token.to_string();
     Ok(token_string)
 }
 
