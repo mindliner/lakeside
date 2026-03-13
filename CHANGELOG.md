@@ -1,6 +1,9 @@
 # Changelog
 
-## [Unreleased] - 2026-03-13
+## [Unreleased]
+- _Nothing yet._
+
+## [0.1.3] - 2026-03-13
 
 ### Added
 - Ticket datastore tooling (`tickets init/import/list`) plus hashed ticket storage.
