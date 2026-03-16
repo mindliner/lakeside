@@ -8,6 +8,8 @@ Need a GUI to drive the entire workflow (ticket import → wallet funding → fa
 Check out [mindliner/catofa](https://github.com/mindliner/catofa) — a React/Express wrapper that shells out to this CLI, streams
 funding invoices (with QR codes), and exposes a self-serve “Get your token” page for guests.
 
+> Tip: clone Lakeside with `git clone --recurse-submodules` (or run `git submodule update --init --recursive`) to pull the Catofa UI alongside the CLI.
+
 ## Highlights
 
 - 🎟️ **Ticket-gated faucet** – Axum server with `/claim` that ties one Cashu bundle to each ticket code, stores issued tokens, and replays them if a guest needs them again.
