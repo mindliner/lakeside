@@ -2,6 +2,12 @@
 
 Lakeside started as a small Rust CLI for batch-minting Cashu tokens for the **Bitcoin Lakeside Party 2025 – Grill & Chill**. It has since grown into a ticket-aware faucet server plus utilities for importing attendee lists, funding a persistent wallet, and handing out bundles of sats at conferences.
 
+## Catofa web UI
+
+Need a GUI to drive the entire workflow (ticket import → wallet funding → faucet control → attendee claims)?
+Check out [mindliner/catofa](https://github.com/mindliner/catofa) — a React/Express wrapper that shells out to this CLI, streams
+funding invoices (with QR codes), and exposes a self-serve “Get your token” page for guests.
+
 ## Highlights
 
 - 🎟️ **Ticket-gated faucet** – Axum server with `/claim` that ties one Cashu bundle to each ticket code, stores issued tokens, and replays them if a guest needs them again.
