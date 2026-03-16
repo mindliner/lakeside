@@ -1,0 +1,3 @@
+[submodule "ui/catofa"]
+	path = ui/catofa
+	url = https://github.com/mindliner/catofa.git
