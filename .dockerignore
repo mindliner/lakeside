@@ -1,0 +1,13 @@
+# Git + build artifacts
+.git
+target
+**/target
+
+# Node build output and deps
+ui/catofa/node_modules
+ui/catofa/dist
+ui/catofa/runtime
+
+# Local editor cruft
+**/.DS_Store
+**/*.log

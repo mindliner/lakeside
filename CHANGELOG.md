@@ -1,7 +1,8 @@
 # Changelog
 
 ## [Unreleased]
-- _Nothing yet._
+### Added
+- `.dockerignore` to slim Docker build contexts (esp. when Catofa uses this repo as a sibling during multi-stage builds).
 
 ## [0.1.3] - 2026-03-13
 
